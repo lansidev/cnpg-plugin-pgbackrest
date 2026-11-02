@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/operasoftware/cnpg-plugin-pgbackrest/compare/v0.9.0...v0.9.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **deps:** Update kubernetes monorepo to v0.37.2 ([#180](https://github.com/operasoftware/cnpg-plugin-pgbackrest/issues/180)) ([fd12fad](https://github.com/operasoftware/cnpg-plugin-pgbackrest/commit/fd12fad70a0c1a513f0f87f682a9cfc1985230b8))
+
 ## [0.9.0](https://github.com/operasoftware/cnpg-plugin-pgbackrest/compare/v0.8.0...v0.9.0) (2026-10-30)
 
 
