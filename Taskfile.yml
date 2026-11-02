@@ -317,8 +317,12 @@ tasks:
         - REGISTRY_USER
         - REGISTRY_PASSWORD
     vars:
-      PLUGIN_IMAGE_NAME: '{{.GITHUB_REPOSITORY}}{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
-      SIDECAR_IMAGE_NAME: '{{.GITHUB_REPOSITORY}}-sidecar{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
+      # Target registry; pass REGISTRY=ghcr.io (or similar) to publish elsewhere.
+      # Non-default registries are prefixed in the refs: the resolver derives
+      # the target host from the ref, --registry only scopes the credentials.
+      IMAGE_PREFIX: '{{if ne (.REGISTRY | default "docker.io") "docker.io"}}{{.REGISTRY}}/{{end}}'
+      PLUGIN_IMAGE_NAME: '{{.IMAGE_PREFIX}}{{.GITHUB_REPOSITORY}}{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
+      SIDECAR_IMAGE_NAME: '{{.IMAGE_PREFIX}}{{.GITHUB_REPOSITORY}}-sidecar{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
       # remove /merge suffix from the branch name. This is a workaround for the GitHub workflow on PRs,
       # where the branch name is suffixed with /merge. Prepend pr- to the branch name on PRs.
       IMAGE_VERSION: '{{regexReplaceAll "(\\d+)/merge" .GITHUB_REF_NAME "pr-${1}"}}'
@@ -328,12 +332,12 @@ tasks:
     cmds:
       - >
         dagger call -m github.com/purpleclay/daggerverse/docker@${DAGGER_DOCKER_SHA}
-        --registry docker.io --username $REGISTRY_USER --password env:REGISTRY_PASSWORD
+        --registry {{.REGISTRY | default "docker.io"}} --username $REGISTRY_USER --password env:REGISTRY_PASSWORD
         build --dir . --file containers/Dockerfile.plugin --platform linux/amd64 --platform linux/arm64
         publish --ref {{.PLUGIN_IMAGE_NAME}} --tags {{.IMAGE_VERSION}}
       - >
         dagger call -m github.com/purpleclay/daggerverse/docker@${DAGGER_DOCKER_SHA}
-        --registry docker.io --username $REGISTRY_USER --password env:REGISTRY_PASSWORD
+        --registry {{.REGISTRY | default "docker.io"}} --username $REGISTRY_USER --password env:REGISTRY_PASSWORD
         build --dir . --file containers/Dockerfile.sidecar --platform linux/amd64 --platform linux/arm64
         publish --ref {{.SIDECAR_IMAGE_NAME}} --tags {{.IMAGE_VERSION}}
 
@@ -419,8 +423,11 @@ tasks:
         - GITHUB_REF
         - GITHUB_REF_NAME
     vars:
-      PLUGIN_IMAGE_NAME: '{{.GITHUB_REPOSITORY}}{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
-      SIDECAR_IMAGE_NAME: '{{.GITHUB_REPOSITORY}}-sidecar{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
+      # Target registry; non-default registries are prefixed in the image refs
+      # so the generated manifest pulls from the right place.
+      IMAGE_PREFIX: '{{if ne (.REGISTRY | default "docker.io") "docker.io"}}{{.REGISTRY}}/{{end}}'
+      PLUGIN_IMAGE_NAME: '{{.IMAGE_PREFIX}}{{.GITHUB_REPOSITORY}}{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
+      SIDECAR_IMAGE_NAME: '{{.IMAGE_PREFIX}}{{.GITHUB_REPOSITORY}}-sidecar{{if not (hasPrefix "refs/tags/v" .GITHUB_REF)}}-testing{{end}}'
       # remove /merge suffix from the branch name. This is a workaround for the GitHub workflow on PRs,
       # where the branch name is suffixed with /merge. Prepend pr- to the branch name on PRs.
       IMAGE_VERSION: '{{regexReplaceAll "(\\d+)/merge" .GITHUB_REF_NAME "pr-${1}"}}'

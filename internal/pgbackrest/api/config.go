@@ -102,11 +102,51 @@ type S3Credentials struct {
 	URIStyle string `json:"uriStyle,omitempty"`
 }
 
+// SFTPCredentials is the connection and authentication configuration of an
+// SFTP repository (pgBackRest repo-type=sftp)
+type SFTPCredentials struct {
+	// Hostname or IP address of the SFTP server storing the repository
+	// +kubebuilder:validation:MinLength=1
+	Host string `json:"host"`
+
+	// User used to log in to the SFTP server
+	// +kubebuilder:validation:MinLength=1
+	HostUser string `json:"hostUser"`
+
+	// Port of the SFTP server, defaults to 22
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	HostPort int32 `json:"hostPort,omitempty"`
+
+	// The reference to the secret key containing the SSH private key used for
+	// authentication, without a passphrase. Note that the key must be in a
+	// format supported by libssh2 on the sidecar image (PEM always works).
+	PrivateKeyReference *machineryapi.SecretKeySelector `json:"privateKey"`
+
+	// Hash type used to compute hostFingerprint. sha256 requires a
+	// reasonably recent libssh2 on the sidecar image.
+	// +kubebuilder:validation:Enum=md5;sha1;sha256
+	HostKeyHashType string `json:"hostKeyHashType"`
+
+	// Hex digest of the server host key, computed with hostKeyHashType, e.g.
+	// awk '{print $2}' ssh_host_ed25519_key.pub | base64 -d | sha256sum.
+	// Host key verification always uses fingerprint checking because the
+	// sidecar container has no known_hosts file.
+	// +kubebuilder:validation:MinLength=1
+	HostFingerprint string `json:"hostFingerprint"`
+}
+
 // PgbackrestCredentials an object containing the potential credentials for each cloud provider
 type PgbackrestCredentials struct {
 	// The credentials to use to upload data to S3
 	// +optional
 	AWS *S3Credentials `json:"s3Credentials,omitempty"`
+
+	// The connection and authentication data for an SFTP repository,
+	// mutually exclusive with s3Credentials
+	// +optional
+	SFTP *SFTPCredentials `json:"sftpCredentials,omitempty"`
 }
 
 // PgbackrestRetention an object containing the backup retention time for all backup
@@ -319,12 +359,15 @@ type PgbackrestRepository struct {
 	// +optional
 	DisableVerifyTLS bool `json:"disableVerifyTLS,omitempty"`
 
-	// The path in the bucket where to store the backup (i.e. path/to/folder).
-	// Must start with a slash character.
+	// The path in the bucket (S3) or on the SFTP server where to store the
+	// backup (i.e. path/to/folder). Must start with a slash character.
 	// +kubebuilder:validation:Pattern=(/[a-zA-Z]*)+
 	DestinationPath string `json:"destinationPath"`
+	// The name of the bucket. Required for S3 repositories, must be left
+	// empty for SFTP repositories.
 	// +kubebuilder:validation:MinLength=1
-	Bucket string `json:"bucket"`
+	// +optional
+	Bucket string `json:"bucket,omitempty"`
 
 	// The retention policy for backups.
 	// If at least full backup retention isn't configured, both backups and WAL archives

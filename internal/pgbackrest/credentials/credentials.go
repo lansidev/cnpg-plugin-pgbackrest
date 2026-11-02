@@ -42,6 +42,10 @@ const (
 	// PgBackRestEndpointCACertificateFileName is the base name of the file in
 	// which the pgBackRest endpoint CA certificate is stored.
 	PgBackRestEndpointCACertificateFileName = "pgbackrest-ca.crt"
+
+	// PgBackRestSFTPPrivateKeyFileName is the base name of the file in which
+	// the SSH private key for an SFTP repository is stored.
+	PgBackRestSFTPPrivateKeyFileName = "sftp.key"
 )
 
 // PgBackRestBackupEndpointCACertificateLocation returns the file path where
@@ -58,6 +62,18 @@ func PgBackRestRestoreEndpointCACertificateLocation(repoIndex int) string {
 	return CertificatesDir + fmt.Sprintf("restore-repo%d-%s", repoIndex+1, PgBackRestEndpointCACertificateFileName)
 }
 
+// PgBackRestBackupSFTPPrivateKeyLocation returns the file path where the SSH
+// private key for backups of the given repository (zero-based index) is stored.
+func PgBackRestBackupSFTPPrivateKeyLocation(repoIndex int) string {
+	return CertificatesDir + fmt.Sprintf("backup-repo%d-%s", repoIndex+1, PgBackRestSFTPPrivateKeyFileName)
+}
+
+// PgBackRestRestoreSFTPPrivateKeyLocation returns the file path where the SSH
+// private key for restores of the given repository (zero-based index) is stored.
+func PgBackRestRestoreSFTPPrivateKeyLocation(repoIndex int) string {
+	return CertificatesDir + fmt.Sprintf("restore-repo%d-%s", repoIndex+1, PgBackRestSFTPPrivateKeyFileName)
+}
+
 // EnvSetBackupCloudCredentials sets the AWS environment variables needed for backups
 // given the configuration inside the cluster
 func EnvSetBackupCloudCredentials(
@@ -70,10 +86,17 @@ func EnvSetBackupCloudCredentials(
 	for index, repo := range configuration.Repositories {
 		if repo.EndpointCA != nil {
 			caPath := PgBackRestBackupEndpointCACertificateLocation(index)
-			if err := writeEndpointCACertificate(ctx, c, repo.EndpointCA, namespace, caPath); err != nil {
+			if err := writeSecretToFile(ctx, c, repo.EndpointCA, namespace, caPath); err != nil {
 				return nil, fmt.Errorf("writing backup endpoint CA certificate: %w", err)
 			}
 			env = append(env, utils.FormatRepoEnv(index, "STORAGE_CA_FILE", caPath))
+		}
+		if repo.SFTP != nil {
+			keyPath := PgBackRestBackupSFTPPrivateKeyLocation(index)
+			if err := writeSFTPPrivateKey(ctx, c, repo.SFTP, namespace, keyPath); err != nil {
+				return nil, fmt.Errorf("writing backup SFTP private key: %w", err)
+			}
+			env = append(env, utils.FormatRepoEnv(index, "SFTP_PRIVATE_KEY_FILE", keyPath))
 		}
 	}
 
@@ -92,10 +115,17 @@ func EnvSetRestoreCloudCredentials(
 	for index, repo := range configuration.Repositories {
 		if repo.EndpointCA != nil {
 			caPath := PgBackRestRestoreEndpointCACertificateLocation(index)
-			if err := writeEndpointCACertificate(ctx, c, repo.EndpointCA, namespace, caPath); err != nil {
+			if err := writeSecretToFile(ctx, c, repo.EndpointCA, namespace, caPath); err != nil {
 				return nil, fmt.Errorf("writing restore endpoint CA certificate: %w", err)
 			}
 			env = append(env, utils.FormatRepoEnv(index, "STORAGE_CA_FILE", caPath))
+		}
+		if repo.SFTP != nil {
+			keyPath := PgBackRestRestoreSFTPPrivateKeyLocation(index)
+			if err := writeSFTPPrivateKey(ctx, c, repo.SFTP, namespace, keyPath); err != nil {
+				return nil, fmt.Errorf("writing restore SFTP private key: %w", err)
+			}
+			env = append(env, utils.FormatRepoEnv(index, "SFTP_PRIVATE_KEY_FILE", keyPath))
 		}
 	}
 
@@ -235,27 +265,61 @@ func extractValueFromSecret(
 	return value, nil
 }
 
-// writeEndpointCACertificate reads the CA certificate from the referenced Kubernetes
-// Secret and writes it to the given file path so pgBackRest can verify the S3
-// endpoint's TLS certificate via the PGBACKREST_REPO<N>_STORAGE_CA_FILE env var.
-func writeEndpointCACertificate(
+// writeSecretToFile reads a value from the referenced Kubernetes Secret and
+// writes it to the given file path (0600) inside the scratch certificates
+// directory, so it can be referenced by pgBackRest file-based options such as
+// PGBACKREST_REPO<N>_STORAGE_CA_FILE or PGBACKREST_REPO<N>_SFTP_PRIVATE_KEY_FILE.
+func writeSecretToFile(
 	ctx context.Context,
 	c client.Client,
 	secretReference *machineryapi.SecretKeySelector,
 	namespace string,
 	filePath string,
 ) error {
-	caData, err := extractValueFromSecret(ctx, c, secretReference, namespace)
+	data, err := extractValueFromSecret(ctx, c, secretReference, namespace)
 	if err != nil {
-		return fmt.Errorf("reading endpoint CA secret %s/%s: %w", namespace, secretReference.Name, err)
+		return fmt.Errorf("reading secret %s/%s: %w", namespace, secretReference.Name, err)
 	}
 
 	if err := os.MkdirAll(CertificatesDir, 0o700); err != nil {
 		return fmt.Errorf("creating certificates directory %s: %w", CertificatesDir, err)
 	}
 
-	if err := os.WriteFile(filePath, caData, 0o600); err != nil {
-		return fmt.Errorf("writing endpoint CA certificate to %s: %w", filePath, err)
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
+		return fmt.Errorf("writing secret value to %s: %w", filePath, err)
+	}
+
+	return nil
+}
+
+// writeSFTPPrivateKey writes the SSH private key of an SFTP repository to the
+// given file path. libssh2 requires the key to end with a newline, so one is
+// appended when missing.
+func writeSFTPPrivateKey(
+	ctx context.Context,
+	c client.Client,
+	sftp *pgbackrestApi.SFTPCredentials,
+	namespace string,
+	filePath string,
+) error {
+	if sftp.PrivateKeyReference == nil {
+		return fmt.Errorf("missing SFTP private key reference")
+	}
+
+	keyData, err := extractValueFromSecret(ctx, c, sftp.PrivateKeyReference, namespace)
+	if err != nil {
+		return fmt.Errorf("reading SFTP private key secret %s/%s: %w", namespace, sftp.PrivateKeyReference.Name, err)
+	}
+	if len(keyData) > 0 && keyData[len(keyData)-1] != '\n' {
+		keyData = append(keyData, '\n')
+	}
+
+	if err := os.MkdirAll(CertificatesDir, 0o700); err != nil {
+		return fmt.Errorf("creating certificates directory %s: %w", CertificatesDir, err)
+	}
+
+	if err := os.WriteFile(filePath, keyData, 0o600); err != nil {
+		return fmt.Errorf("writing SFTP private key to %s: %w", filePath, err)
 	}
 
 	return nil

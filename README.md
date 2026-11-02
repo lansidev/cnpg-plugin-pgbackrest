@@ -38,12 +38,14 @@ The features provided by this plugin are:
 > in the object store, restore is currently tested only with full backup recovery
 > to the latest backup. Reports on more advanced recovery attempts are welcome.
 
-This plugin is currently only compatible with S3 object storage.
+This plugin is compatible with S3 object storage and, since this fork, with
+plain SFTP servers (pgBackRest `repo-type=sftp`).
 
 The following storage solutions have been tested and confirmed to work with
 this implementation:
 
 - [MinIO](https://min.io/) – An S3-compatible object storage solution.
+- [Hetzner Storage Box](https://www.hetzner.com/storage/storage-box/) – via SFTP.
 
 Known missing features:
 
@@ -206,6 +208,42 @@ spec:
         memory: "2Gi"
         cpu: "2"
 ```
+
+For an SFTP repository, replace `bucket`/`endpointURL`/`s3Credentials` with
+`sftpCredentials`. The host key is always verified against the configured
+fingerprint (hex digest of the raw host key, computed with `hostKeyHashType`;
+e.g. `ssh-keyscan -t ed25519 host | awk '{print $3}' | base64 -d | sha256sum`):
+
+```yaml
+apiVersion: pgbackrest.cnpg.opera.com/v1
+kind: Archive
+metadata:
+  name: sftp-store
+spec:
+  configuration:
+    repositories:
+      - destinationPath: /backups/pgbackrest
+        encryption: aes-256-cbc
+        encryptionKey:
+          name: sftp-backup
+          key: ENCRYPTION_KEY
+        sftpCredentials:
+          host: uXXXXXX.your-storagebox.de
+          hostUser: uXXXXXX
+          hostPort: 23
+          privateKey:
+            name: sftp-backup
+            key: SSH_PRIVATE_KEY
+          hostKeyHashType: sha256
+          hostFingerprint: "<hex digest of the raw host key>"
+    compression: zst
+```
+
+> [!NOTE]
+> The SSH private key must not have a passphrase and must be in a format
+> supported by libssh2 (PEM always works). Each parallel pgBackRest process
+> opens its own SSH connection; keep `wal.maxParallel` and `process-max` low
+> if the server limits concurrent sessions.
 
 > [!IMPORTANT]
 > Unlike Barman, pgBackRest requires object storage to be accessible over HTTPS. While
