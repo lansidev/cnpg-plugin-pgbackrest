@@ -7,6 +7,9 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Cleanup Disk
         uses: jlumbroso/free-disk-space@v2.0.0
@@ -53,10 +56,10 @@ jobs:
           github.event_name == 'workflow_dispatch' ||
           github.event.pull_request.head.repo.full_name == github.repository
         env:
-          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          task publish
+          task publish REGISTRY=ghcr.io
       - name: Attach manifest to workflow run
         uses: actions/upload-artifact@v7
         with:
