@@ -144,12 +144,15 @@ spec:
                         a selected object store.
                       properties:
                         bucket:
+                          description: |-
+                            The name of the bucket. Required for S3 repositories, must be left
+                            empty for SFTP repositories.
                           minLength: 1
                           type: string
                         destinationPath:
                           description: |-
-                            The path in the bucket where to store the backup (i.e. path/to/folder).
-                            Must start with a slash character.
+                            The path in the bucket (S3) or on the SFTP server where to store the
+                            backup (i.e. path/to/folder). Must start with a slash character.
                           pattern: (/[a-zA-Z]*)+
                           type: string
                         disableVerifyTLS:
@@ -317,8 +320,67 @@ spec:
                                 (default) or "path".
                               type: string
                           type: object
+                        sftpCredentials:
+                          description: |-
+                            The connection and authentication data for an SFTP repository,
+                            mutually exclusive with s3Credentials
+                          properties:
+                            host:
+                              description: Hostname or IP address of the SFTP server
+                                storing the repository
+                              minLength: 1
+                              type: string
+                            hostFingerprint:
+                              description: |-
+                                Hex digest of the server host key, computed with hostKeyHashType, e.g.
+                                awk '{print $2}' ssh_host_ed25519_key.pub | base64 -d | sha256sum.
+                                Host key verification always uses fingerprint checking because the
+                                sidecar container has no known_hosts file.
+                              minLength: 1
+                              type: string
+                            hostKeyHashType:
+                              description: |-
+                                Hash type used to compute hostFingerprint. sha256 requires a
+                                reasonably recent libssh2 on the sidecar image.
+                              enum:
+                              - md5
+                              - sha1
+                              - sha256
+                              type: string
+                            hostPort:
+                              description: Port of the SFTP server, defaults to 22
+                              format: int32
+                              maximum: 65535
+                              minimum: 1
+                              type: integer
+                            hostUser:
+                              description: User used to log in to the SFTP server
+                              minLength: 1
+                              type: string
+                            privateKey:
+                              description: |-
+                                The reference to the secret key containing the SSH private key used for
+                                authentication, without a passphrase. Note that the key must be in a
+                                format supported by libssh2 on the sidecar image (PEM always works).
+                              properties:
+                                key:
+                                  description: The key to select
+                                  type: string
+                                name:
+                                  description: Name of the referent.
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          required:
+                          - host
+                          - hostFingerprint
+                          - hostKeyHashType
+                          - hostUser
+                          - privateKey
+                          type: object
                       required:
-                      - bucket
                       - destinationPath
                       type: object
                     type: array

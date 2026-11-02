@@ -173,3 +173,65 @@ var _ = Describe("PgbackrestRetention", func() {
 				))
 	})
 })
+
+var _ = Describe("appendCloudProviderOptions with SFTP", func() {
+	var storageConf *pgbackrestApi.PgbackrestConfiguration
+	BeforeEach(func() {
+		storageConf = &pgbackrestApi.PgbackrestConfiguration{
+			Repositories: []pgbackrestApi.PgbackrestRepository{
+				{
+					PgbackrestCredentials: pgbackrestApi.PgbackrestCredentials{
+						SFTP: &pgbackrestApi.SFTPCredentials{
+							Host:            "backup.example.com",
+							HostUser:        "backupuser",
+							HostKeyHashType: "sha256",
+							HostFingerprint: "f84e172dfead7aeeeae6c1fdfb5aa8cf",
+						},
+					},
+					DestinationPath: "/backups/pgbackrest",
+				},
+			},
+		}
+	})
+
+	It("should generate the sftp repository flags", func(ctx SpecContext) {
+		options, err := AppendCloudProviderOptionsFromConfiguration(ctx, nil, storageConf)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(strings.Join(options, " ")).
+			To(
+				Equal(
+					"--repo1-type sftp --repo1-sftp-host backup.example.com " +
+						"--repo1-sftp-host-user backupuser " +
+						"--repo1-sftp-host-key-check-type fingerprint " +
+						"--repo1-sftp-host-key-hash-type sha256 " +
+						"--repo1-sftp-host-fingerprint f84e172dfead7aeeeae6c1fdfb5aa8cf " +
+						"--repo1-path /backups/pgbackrest",
+				))
+	})
+
+	It("should honor a custom port", func(ctx SpecContext) {
+		storageConf.Repositories[0].SFTP.HostPort = 23
+		options, err := AppendCloudProviderOptionsFromConfiguration(ctx, nil, storageConf)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(strings.Join(options, " ")).
+			To(ContainSubstring("--repo1-sftp-host-port 23"))
+	})
+
+	It("should reject s3Credentials combined with sftpCredentials", func(ctx SpecContext) {
+		storageConf.Repositories[0].AWS = &pgbackrestApi.S3Credentials{}
+		_, err := AppendCloudProviderOptionsFromConfiguration(ctx, nil, storageConf)
+		Expect(err).To(MatchError(ContainSubstring("mutually exclusive")))
+	})
+
+	It("should reject S3-only fields combined with sftpCredentials", func(ctx SpecContext) {
+		storageConf.Repositories[0].Bucket = "bucket-name"
+		_, err := AppendCloudProviderOptionsFromConfiguration(ctx, nil, storageConf)
+		Expect(err).To(MatchError(ContainSubstring("cannot be used with sftpCredentials")))
+	})
+
+	It("should reject an S3 repository without a bucket", func(ctx SpecContext) {
+		storageConf.Repositories[0].SFTP = nil
+		_, err := AppendCloudProviderOptionsFromConfiguration(ctx, nil, storageConf)
+		Expect(err).To(MatchError(ContainSubstring("bucket is required")))
+	})
+})

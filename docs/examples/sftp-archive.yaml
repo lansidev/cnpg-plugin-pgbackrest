@@ -1,0 +1,29 @@
+apiVersion: pgbackrest.cnpg.opera.com/v1
+kind: Archive
+metadata:
+  name: sftp-store
+spec:
+  configuration:
+    repositories:
+      - destinationPath: /backups/pgbackrest
+        encryption: aes-256-cbc
+        encryptionKey:
+          name: sftp-backup
+          key: ENCRYPTION_KEY
+        sftpCredentials:
+          host: uXXXXXX.your-storagebox.de
+          hostUser: uXXXXXX
+          hostPort: 23
+          privateKey:
+            name: sftp-backup
+            key: SSH_PRIVATE_KEY
+          hostKeyHashType: sha256
+          # Hex digest of the raw host key, matching hostKeyHashType:
+          # ssh-keyscan -t ed25519 <host> | awk '{print $3}' | base64 -d | sha256sum
+          hostFingerprint: "0000000000000000000000000000000000000000000000000000000000000000"
+        retention:
+          full: 14
+          fullType: time
+    compression: zst
+    wal:
+      maxParallel: 2

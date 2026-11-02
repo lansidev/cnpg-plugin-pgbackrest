@@ -161,7 +161,14 @@ func appendCloudProviderOptions(
 	options []string,
 	repoIndex int,
 	repository pgbackrestApi.PgbackrestRepository,
-) ([]string, error) { // nolint: unparam
+) ([]string, error) {
+	if repository.SFTP != nil {
+		return appendSFTPOptions(options, repoIndex, repository)
+	}
+
+	if len(repository.Bucket) == 0 {
+		return nil, fmt.Errorf("repository %d: bucket is required for S3 repositories", repoIndex+1)
+	}
 	options = append(
 		options,
 		utils.FormatRepoFlag(repoIndex, "type"),
@@ -189,6 +196,44 @@ func appendCloudProviderOptions(
 				repository.AWS.URIStyle)
 		}
 	}
+	return options, nil
+}
+
+// appendSFTPOptions takes an options array and adds the flags for an SFTP
+// repository. The private key file itself is provided through the
+// PGBACKREST_REPO<N>_SFTP_PRIVATE_KEY_FILE environment variable, since its
+// on-disk location differs between backup and restore contexts (see the
+// credentials package).
+func appendSFTPOptions(
+	options []string,
+	repoIndex int,
+	repository pgbackrestApi.PgbackrestRepository,
+) ([]string, error) {
+	if repository.AWS != nil {
+		return nil, fmt.Errorf(
+			"repository %d: s3Credentials and sftpCredentials are mutually exclusive", repoIndex+1)
+	}
+	if len(repository.Bucket) > 0 || len(repository.EndpointURL) > 0 || repository.EndpointCA != nil {
+		return nil, fmt.Errorf(
+			"repository %d: bucket, endpointURL and endpointCA cannot be used with sftpCredentials", repoIndex+1)
+	}
+
+	sftp := repository.SFTP
+	options = append(options,
+		utils.FormatRepoFlag(repoIndex, "type"), "sftp",
+		utils.FormatRepoFlag(repoIndex, "sftp-host"), sftp.Host,
+		utils.FormatRepoFlag(repoIndex, "sftp-host-user"), sftp.HostUser,
+	)
+	if sftp.HostPort != 0 {
+		options = append(options,
+			utils.FormatRepoFlag(repoIndex, "sftp-host-port"), strconv.Itoa(int(sftp.HostPort)))
+	}
+	options = append(options,
+		utils.FormatRepoFlag(repoIndex, "sftp-host-key-check-type"), "fingerprint",
+		utils.FormatRepoFlag(repoIndex, "sftp-host-key-hash-type"), sftp.HostKeyHashType,
+		utils.FormatRepoFlag(repoIndex, "sftp-host-fingerprint"), sftp.HostFingerprint,
+		utils.FormatRepoFlag(repoIndex, "path"), repository.DestinationPath,
+	)
 	return options, nil
 }
 
